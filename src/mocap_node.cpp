@@ -17,6 +17,8 @@
 #include <tf/transform_datatypes.h>
 #include <tf/transform_broadcaster.h>
 #include <geometry_msgs/Pose2D.h>
+#include <geometry_msgs/Pose.h>
+#include <geometry_msgs/PoseArray.h>
 
 // System includes
 #include <string>
@@ -27,6 +29,7 @@
 // ip on multicast group - cannot be changed in Arena
 const std::string MULTICAST_IP_KEY = "optitrack_config/multicast_address";
 const std::string MULTICAST_IP_DEFAULT = "224.0.0.1";
+const std::string OTHER_MARKERS_KEY = "publish_other_markers";
 
 const std::string MOCAP_MODEL_KEY = "mocap_model";
 const std::string RIGID_BODIES_KEY = "rigid_bodies";
@@ -77,8 +80,10 @@ typedef struct
 
 ////////////////////////////////////////////////////////////////////////
 
-void processMocapData( const char** mocap_model,
+void processMocapData( ros::NodeHandle n,
+                       const char** mocap_model,
                        RigidBodyMap& published_rigid_bodies,
+                       bool pub_other_markers,
                        const std::string& multicast_ip)
 {
   UdpMulticastSocket multicast_client_socket( LOCAL_PORT, multicast_ip );
@@ -97,6 +102,8 @@ void processMocapData( const char** mocap_model,
 
   ROS_INFO("Start processMocapData");
   bool version = false;
+
+  ros::Publisher otherPub = n.advertise<geometry_msgs::PoseArray>("locations", 1);
 
   while(ros::ok())
   {
@@ -127,7 +134,7 @@ void processMocapData( const char** mocap_model,
           payload_len = *((unsigned short*) &buffer[2]);  // 2-bytes.
           MoCapDataFormat format(buffer, payload_len);
           format.setVersion(nver,sver);
-          format.parse();
+          format.parse(); // put EVERYTHIG inside model
           packetread = true;
           numberOfPackets++;
 
@@ -138,13 +145,33 @@ void processMocapData( const char** mocap_model,
               int ID = format.model.rigidBodies[i].ID;
               RigidBodyMap::iterator item = published_rigid_bodies.find(ID);
 
-              if (item != published_rigid_bodies.end())
+              if (item != published_rigid_bodies.end()) // if exists - probably
               {
                   item->second.publish(format.model.rigidBodies[i]);
               }
             }
           }
+
+          // Publish other markers
+          if (pub_other_markers)
+          {
+            if (format.model.numOtherMarkers > 0)
+            {
+              int length = format.model.numOtherMarkers;
+              geometry_msgs::Pose tmp;
+              geometry_msgs::PoseArray msg;
+              for (int i = 0; i < length; i++)
+              {
+                tmp.position.x = format.model.otherMarkers[i].positionX;
+                tmp.position.y = -format.model.otherMarkers[i].positionZ;
+                msg.poses.push_back(tmp);
+              }
+              msg.header.stamp = ros::Time::now();
+              otherPub.publish(msg);
+            }
+          }          
         }
+
 
         if (header == NAT_PINGRESPONSE) {
           ROS_DEBUG("Header : %d, %d", header, PacketIn.iMessage);
@@ -185,7 +212,7 @@ int main( int argc, char* argv[] )
   const char** mocap_model( DEFAULT_MOCAP_MODEL );
   if( n.hasParam( MOCAP_MODEL_KEY ) )
   {    std::string tmp;
-    if( n.getParam( MOCAP_MODEL_KEY, tmp ) )
+    if( n.getParam( MOCAP_MODEL_KEY, tmp ) ) // param -> tmp
     {
       if( tmp == "SKELETON_WITH_TOES" )
         mocap_model = SKELETON_WITH_TOES;
@@ -206,7 +233,13 @@ int main( int argc, char* argv[] )
     ROS_WARN_STREAM("Could not get multicast address, using default: " << multicast_ip);
   }
 
-  RigidBodyMap published_rigid_bodies;
+  bool pub_other_markers;
+  if (n.hasParam(OTHER_MARKERS_KEY))
+  {
+    n.getParam(OTHER_MARKERS_KEY, pub_other_markers);
+  }
+
+  RigidBodyMap published_rigid_bodies; // dict {int, PublishedRigidBody}
 
   if (n.hasParam(RIGID_BODIES_KEY))
   {
@@ -232,7 +265,7 @@ int main( int argc, char* argv[] )
   }
 
   // Process mocap data until SIGINT
-  processMocapData(mocap_model, published_rigid_bodies, multicast_ip);
+  processMocapData(n, mocap_model, published_rigid_bodies, pub_other_markers, multicast_ip);
 
   return 0;
 }

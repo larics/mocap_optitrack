@@ -194,6 +194,10 @@ void MoCapDataFormat::parse()
   {
     // read positions of 'other' markers
     read_and_seek(model.otherMarkers[l]);
+    float x = model.otherMarkers[l].positionX;
+    float y = model.otherMarkers[l].positionY;
+    float z = model.otherMarkers[l].positionZ;
+    ROS_DEBUG("\t marker %d: [x=%3.2f,y=%3.2f,z=%3.2f]", l, x, y, z);
   }
 
   // read number of rigid bodies of the model
