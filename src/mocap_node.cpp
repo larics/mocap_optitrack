@@ -103,7 +103,7 @@ void processMocapData( ros::NodeHandle n,
   ROS_INFO("Start processMocapData");
   bool version = false;
 
-  ros::Publisher otherPub = n.advertise<geometry_msgs::PoseArray>("locations", 1);
+  ros::Publisher otherPub = n.advertise<geometry_msgs::PoseArray>("positions", 1);
 
   while(ros::ok())
   {
